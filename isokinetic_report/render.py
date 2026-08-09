@@ -10,6 +10,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
+from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.patches import Circle, FancyBboxPatch, Wedge
 
 from .analysis import RATIO_STATUS_LABELS
@@ -146,10 +147,12 @@ def draw_joint_panel(fig, rect: tuple[float, float, float, float], joint: str, r
                 fig.add_artist(plt.Line2D([x + 0.012, x + width - 0.012], [block_y - 0.002, block_y - 0.002], transform=fig.transFigure, color="#D8E2F2", linewidth=0.6, linestyle="--"))
 
 
-def _draw_header(fig, result: AnalysisResult) -> None:
+def _draw_header(fig, result: AnalysisResult, page_number: int = 1, total_pages: int = 1) -> None:
     palette = result.standards.palette
     title = "等速肌力综合报告（预览版）" if result.standards.preview else "等速肌力综合报告"
-    fig.text(0.5, 0.958, title, ha="center", va="center", fontsize=23 if result.standards.preview else 25, fontweight="bold", color=palette["主色"])
+    if total_pages > 1:
+        title += f"  {page_number}/{total_pages}"
+    fig.text(0.5, 0.958, title, ha="center", va="center", fontsize=22 if total_pages > 1 or result.standards.preview else 25, fontweight="bold", color=palette["主色"])
     fig.add_artist(plt.Line2D([0.08, 0.23], [0.958, 0.958], transform=fig.transFigure, color=palette["边框色"], linewidth=1.0))
     fig.add_artist(plt.Line2D([0.77, 0.92], [0.958, 0.958], transform=fig.transFigure, color=palette["边框色"], linewidth=1.0))
     _box(fig, 0.035, 0.825, 0.46, 0.095, palette["边框色"])
@@ -194,9 +197,12 @@ def generate_report(result: AnalysisResult, output_dir: Path, include_pdf: bool 
     if not result.standards.complete:
         raise ValueError("Sheet 3 配置不完整，不能生成正式判读报告")
     _configure_chinese_font()
-    fig = plt.figure(figsize=(8, 10), dpi=200, facecolor="white")
-    _draw_header(fig, result)
     joints = sorted(result.standards.gauges.values(), key=lambda item: item.display_order)
+    if not joints:
+        raise ValueError("没有可绘制的关节配置")
+    if len(joints) > 10:
+        raise ValueError(f"当前版本最多支持 10 个关节，实际读取到 {len(joints)} 个")
+    pages = [joints[index:index + 5] for index in range(0, len(joints), 5)]
     panel_rects = [
         (0.025, 0.595, 0.465, 0.205),
         (0.51, 0.595, 0.465, 0.205),
@@ -204,18 +210,29 @@ def generate_report(result: AnalysisResult, output_dir: Path, include_pdf: bool 
         (0.51, 0.370, 0.465, 0.205),
         (0.035, 0.155, 0.93, 0.190),
     ]
-    for index, config in enumerate(joints[:5]):
-        draw_joint_panel(fig, panel_rects[index], config.joint, result, horizontal=index == 4)
-    _draw_recommendations(fig, result)
     output_dir.mkdir(parents=True, exist_ok=True)
     date_part = _safe_filename_part(result.athlete.test_date.replace("-", ""))
     base = f"{_safe_filename_part(result.athlete.name)}_等速肌力综合报告_{date_part}"
     if result.standards.preview:
         base += "_预览版"
-    png_path = output_dir / f"{base}.png"
     pdf_path = output_dir / f"{base}.pdf" if include_pdf else None
-    fig.savefig(png_path, dpi=200, facecolor="white")
+    png_paths: list[Path] = []
+    figures = []
+    for page_index, page_joints in enumerate(pages, start=1):
+        fig = plt.figure(figsize=(8, 10), dpi=200, facecolor="white")
+        _draw_header(fig, result, page_index, len(pages))
+        for index, config in enumerate(page_joints):
+            draw_joint_panel(fig, panel_rects[index], config.joint, result, horizontal=index == 4)
+        _draw_recommendations(fig, result)
+        suffix = f"_第{page_index}页" if len(pages) > 1 else ""
+        png_path = output_dir / f"{base}{suffix}.png"
+        fig.savefig(png_path, dpi=200, facecolor="white")
+        png_paths.append(png_path)
+        figures.append(fig)
     if pdf_path:
-        fig.savefig(pdf_path, format="pdf", facecolor="white")
-    plt.close(fig)
-    return ReportPaths(png=png_path, pdf=pdf_path)
+        with PdfPages(pdf_path) as pdf:
+            for fig in figures:
+                pdf.savefig(fig, facecolor="white")
+    for fig in figures:
+        plt.close(fig)
+    return ReportPaths(png=png_paths[0], pdf=pdf_path, additional_pngs=tuple(png_paths[1:]))

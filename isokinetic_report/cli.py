@@ -44,7 +44,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"错误：无法生成预览版：{exc}", file=sys.stderr)
             return 2
         print("已生成不含状态判定的预览版报告：")
-        print(f"PNG：{paths.png.resolve()}")
+        for index, png in enumerate(paths.pngs, start=1):
+            label = f"PNG {index}/{len(paths.pngs)}" if len(paths.pngs) > 1 else "PNG"
+            print(f"{label}：{png.resolve()}")
         if paths.pdf:
             print(f"PDF：{paths.pdf.resolve()}")
         return 0
@@ -52,7 +54,9 @@ def main(argv: list[str] | None = None) -> int:
         print("校验通过：数据和 Sheet 3 配置完整。")
         return 0
     paths = generate_report(result, args.output_dir, include_pdf=not args.no_pdf)
-    print(f"PNG：{paths.png.resolve()}")
+    for index, png in enumerate(paths.pngs, start=1):
+        label = f"PNG {index}/{len(paths.pngs)}" if len(paths.pngs) > 1 else "PNG"
+        print(f"{label}：{png.resolve()}")
     if paths.pdf:
         print(f"PDF：{paths.pdf.resolve()}")
     return 0

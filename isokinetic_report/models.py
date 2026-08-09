@@ -116,3 +116,8 @@ class AnalysisResult:
 class ReportPaths:
     png: Path
     pdf: Optional[Path]
+    additional_pngs: tuple[Path, ...] = ()
+
+    @property
+    def pngs(self) -> tuple[Path, ...]:
+        return (self.png, *self.additional_pngs)

@@ -11,7 +11,7 @@ from isokinetic_report.render import generate_report
 
 
 class EndToEndTests(unittest.TestCase):
-    def _make_workbook(self, path: Path) -> None:
+    def _make_workbook(self, path: Path, joint_count: int = 5) -> None:
         wb = openpyxl.Workbook()
         ws1 = wb.active
         ws1.title = "1_运动员信息"
@@ -28,7 +28,13 @@ class EndToEndTests(unittest.TestCase):
         ws2.append(["等速测试原始数据"])
         ws2.append([])
         ws2.append(["日期标签", "是否本次", "关节", "速度", "肌群A（比例分子）", "肌群B（比例分母）", "左A峰力矩_Nm", "左B峰力矩_Nm", "右A峰力矩_Nm", "右B峰力矩_Nm", "左比例_A/B", "右比例_A/B", "A双侧差异", "B双侧差异"])
-        joints = [("肩关节屈伸", "屈肌", "伸肌"), ("肩关节内外旋", "外旋", "内旋"), ("髋关节屈伸", "屈肌", "伸肌"), ("膝关节屈伸", "屈肌", "伸肌"), ("踝关节屈伸", "背屈", "跖屈")]
+        joints = [
+            ("肩关节屈伸", "屈肌", "伸肌"), ("肩关节内外旋", "外旋", "内旋"),
+            ("髋关节屈伸", "屈肌", "伸肌"), ("膝关节屈伸", "屈肌", "伸肌"),
+            ("踝关节屈伸", "背屈", "跖屈"), ("肘关节屈伸", "屈肌", "伸肌"),
+            ("腕关节屈伸", "屈肌", "伸肌"), ("躯干屈伸", "屈肌", "伸肌"),
+            ("颈部屈伸", "屈肌", "伸肌"), ("前臂旋转", "旋前", "旋后"),
+        ][:joint_count]
         for index, (joint, a, b) in enumerate(joints):
             for speed in ["慢速", "快速"]:
                 la, lb, ra, rb = 60 + index * 5, 100, 70 + index * 5, 105
@@ -79,6 +85,21 @@ class EndToEndTests(unittest.TestCase):
             with Image.open(paths.png) as image:
                 self.assertEqual(image.size, (1600, 2000))
             self.assertEqual(paths.pdf.read_bytes()[:4], b"%PDF")
+
+    def test_render_ten_joints_as_two_png_pages(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workbook_path = root / "input_10.xlsx"
+            self._make_workbook(workbook_path, joint_count=10)
+            athlete, records, standards, comments = load_workbook_data(workbook_path)
+            result = analyze(athlete, records, standards, comments)
+            paths = generate_report(result, root / "output")
+            self.assertEqual(len(paths.pngs), 2)
+            for png in paths.pngs:
+                with Image.open(png) as image:
+                    self.assertEqual(image.size, (1600, 2000))
+            self.assertTrue(paths.pdf.exists())
+            self.assertGreater(paths.pdf.stat().st_size, 1000)
 
 
 if __name__ == "__main__":

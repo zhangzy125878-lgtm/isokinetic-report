@@ -1,3 +1,4 @@
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -86,20 +87,22 @@ class EndToEndTests(unittest.TestCase):
                 self.assertEqual(image.size, (1600, 2000))
             self.assertEqual(paths.pdf.read_bytes()[:4], b"%PDF")
 
-    def test_render_ten_joints_as_two_png_pages(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            workbook_path = root / "input_10.xlsx"
-            self._make_workbook(workbook_path, joint_count=10)
-            athlete, records, standards, comments = load_workbook_data(workbook_path)
-            result = analyze(athlete, records, standards, comments)
-            paths = generate_report(result, root / "output")
-            self.assertEqual(len(paths.pngs), 2)
-            for png in paths.pngs:
-                with Image.open(png) as image:
-                    self.assertEqual(image.size, (1600, 2000))
-            self.assertTrue(paths.pdf.exists())
-            self.assertGreater(paths.pdf.stat().st_size, 1000)
+    def test_render_six_to_ten_joints_as_two_pages(self):
+        for joint_count in (6, 10):
+            with self.subTest(joint_count=joint_count), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                workbook_path = root / f"input_{joint_count}.xlsx"
+                self._make_workbook(workbook_path, joint_count=joint_count)
+                athlete, records, standards, comments = load_workbook_data(workbook_path)
+                result = analyze(athlete, records, standards, comments)
+                paths = generate_report(result, root / "output")
+                self.assertEqual(len(paths.pngs), 2)
+                for png in paths.pngs:
+                    with Image.open(png) as image:
+                        self.assertEqual(image.size, (1600, 2000))
+                self.assertTrue(paths.pdf.exists())
+                pdf_bytes = paths.pdf.read_bytes()
+                self.assertEqual(len(re.findall(rb"/Type\s*/Page\b", pdf_bytes)), 2)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,41 @@ from .models import AnalysisResult, AsymmetryLevel, AthleteInfo, GaugeConfig, Pr
 
 EXPECTED_JOINTS = ["肩关节屈伸", "肩关节内外旋", "髋关节屈伸", "膝关节屈伸", "踝关节屈伸"]
 EXPECTED_SPEEDS = ["慢速", "快速"]
+WEAKNESS_MODULE_ORDER = [
+    "肩关节屈伸",
+    "肩关节内外旋",
+    "肩关节外展内收",
+    "肘关节屈伸",
+    "上肢推拉",
+    "髋关节屈伸",
+    "髋关节外展内收",
+    "膝关节屈伸",
+    "踝关节屈伸",
+    "躯干屈伸",
+    "躯干旋转",
+]
+WEAKNESS_RATIO_RANGES = {
+    "肩关节屈伸": (0.60, 0.70),
+    "肩关节内外旋": (0.75, 0.85),
+    "肩关节外展内收": (0.95, 1.05),
+    "肘关节屈伸": (0.95, 1.05),
+    "髋关节屈伸": (0.60, 0.70),
+    "髋关节外展内收": (0.95, 1.05),
+    "膝关节屈伸": (0.60, 0.70),
+    "踝关节屈伸": (0.30, 0.40),
+}
+WEAKNESS_GROUP_NAMES = {
+    "肩关节屈伸": "肩关节",
+    "肩关节内外旋": "肩关节",
+    "肩关节外展内收": "肩关节",
+    "髋关节屈伸": "髋关节",
+    "髋关节外展内收": "髋关节",
+    "膝关节屈伸": "膝关节",
+    "踝关节屈伸": "踝关节",
+    "肘关节屈伸": "肘关节",
+    "躯干屈伸": "躯干",
+    "躯干旋转": "躯干",
+}
 RATIO_STATUS_LABELS = {
     "normal": "目标范围",
     "mild": "轻度偏离",
@@ -190,28 +225,92 @@ def _dataset_warnings(records: list[TestRecord], standards: Standards) -> list[s
 
 
 def generate_recommendations(records: list[TestRecord], max_items: int = 4) -> list[str]:
-    severe: list[str] = []
-    attention: list[str] = []
-    for record in records:
-        for side, status in [("左", record.left_ratio_status), ("右", record.right_ratio_status)]:
-            text = f"{record.joint}{record.speed}{side}侧{record.muscle_a}/{record.muscle_b}比例"
-            if status == "severe":
-                severe.append(f"优先复核并改善{text}的明显偏离")
-            elif status in {"mild", "moderate"}:
-                attention.append(f"关注{text}的偏离")
-        for muscle, state in [(record.muscle_a, record.a_asymmetry_state), (record.muscle_b, record.b_asymmetry_state)]:
-            text = f"{record.joint}{record.speed}{muscle}双侧差异"
-            if state == "明显偏大":
-                severe.append(f"优先复核并改善{text}")
-            elif state and state != "正常":
-                attention.append(f"关注{text}")
-    recommendations: list[str] = []
-    for item in severe + attention:
-        if item not in recommendations:
-            recommendations.append(item)
-        if len(recommendations) == max_items:
+    """按关节模块合并比例异常和双侧差异，生成关键薄弱环节。"""
+    def muscle_name(value: str) -> str:
+        return value if value.endswith(("肌", "肌群")) else f"{value}肌"
+
+    module_rank = {name: index for index, name in enumerate(WEAKNESS_MODULE_ORDER)}
+    grouped: dict[str, dict[tuple[str, str], set[str]]] = defaultdict(lambda: defaultdict(set))
+    group_rank: dict[str, int] = {}
+    muscle_rank: dict[tuple[str, str], int] = {}
+
+    ordered_records = sorted(
+        enumerate(records),
+        key=lambda item: (
+            module_rank.get(item[1].joint, len(module_rank)),
+            EXPECTED_SPEEDS.index(item[1].speed) if item[1].speed in EXPECTED_SPEEDS else len(EXPECTED_SPEEDS),
+            item[0],
+        ),
+    )
+    for record_index, record in ordered_records:
+        group_name = WEAKNESS_GROUP_NAMES.get(record.joint, record.joint)
+        group_rank[group_name] = min(group_rank.get(group_name, len(module_rank)), module_rank.get(record.joint, len(module_rank)))
+        strength_type = "最大力量" if record.speed == "慢速" else "快速力量"
+        ratio_covered_muscles: set[str] = set()
+
+        ratio_range = WEAKNESS_RATIO_RANGES.get(record.joint)
+        ratio_findings: list[tuple[str, str]] = []
+        if ratio_range:
+            low, high = ratio_range
+            for side, value in (("左侧", record.left_ratio), ("右侧", record.right_ratio)):
+                if value is not None and value < low:
+                    ratio_findings.append((side, muscle_name(record.muscle_a)))
+                elif value is not None and value > high:
+                    ratio_findings.append((side, muscle_name(record.muscle_b)))
+        if len(ratio_findings) == 2 and ratio_findings[0][1] == ratio_findings[1][1]:
+            ratio_findings = [("双侧", ratio_findings[0][1])]
+        for side, muscle in ratio_findings:
+            grouped[group_name][(side, muscle)].add(strength_type)
+            ratio_covered_muscles.add(muscle)
+            muscle_rank.setdefault((group_name, muscle), record_index)
+
+        asymmetry_values = [
+            (muscle_name(record.muscle_a), record.a_asymmetry, record.left_a, record.right_a),
+            (muscle_name(record.muscle_b), record.b_asymmetry, record.left_b, record.right_b),
+        ]
+        for muscle, difference, left_value, right_value in asymmetry_values:
+            if muscle in ratio_covered_muscles or difference is None or difference <= 0.10:
+                continue
+            if left_value is None or right_value is None or left_value == right_value:
+                continue
+            side = "左侧" if left_value < right_value else "右侧"
+            grouped[group_name][(side, muscle)].add(strength_type)
+            muscle_rank.setdefault((group_name, muscle), record_index)
+
+    summaries: list[str] = []
+    side_order = {"双侧": 0, "左侧": 1, "右侧": 2}
+    strength_order = {"最大力量": 0, "快速力量": 1}
+    for group_name in sorted(grouped, key=lambda name: group_rank[name]):
+        by_muscle_strength: dict[tuple[str, str], set[str]] = defaultdict(set)
+        for (side, muscle), strengths in grouped[group_name].items():
+            for strength in strengths:
+                by_muscle_strength[(muscle, strength)].add(side)
+
+        normalized: dict[tuple[str, str], set[str]] = defaultdict(set)
+        for (muscle, strength), sides in by_muscle_strength.items():
+            if "双侧" in sides or {"左侧", "右侧"}.issubset(sides):
+                normalized[("双侧", muscle)].add(strength)
+            else:
+                for side in sides:
+                    normalized[(side, muscle)].add(strength)
+
+        combined: dict[tuple[str, tuple[str, ...]], list[str]] = defaultdict(list)
+        for (side, muscle), strengths in normalized.items():
+            ordered_strengths = tuple(sorted(strengths, key=strength_order.get))
+            combined[(side, ordered_strengths)].append(muscle)
+
+        clauses: list[tuple[int, int, str]] = []
+        for (side, strengths), muscles in combined.items():
+            muscles.sort(key=lambda muscle: muscle_rank.get((group_name, muscle), len(records)))
+            strength_text = "和".join(strengths)
+            clause = f"{side}{'、'.join(muscles)}{strength_text}不足"
+            clauses.append((side_order.get(side, 9), muscle_rank.get((group_name, muscles[0]), len(records)), clause))
+        clauses.sort()
+        if clauses:
+            summaries.append(f"（{len(summaries) + 1}）{group_name}：{'；'.join(item[2] for item in clauses)}；")
+        if len(summaries) == max_items:
             break
-    return recommendations or ["当前配置标准下未发现需要优先提示的比例或双侧差异"]
+    return summaries
 
 
 def analyze(
@@ -243,7 +342,7 @@ def analyze(
         joint: classify_joint_priority(records, standards.priority_rules) if standards.priority_rules else None
         for joint, records in grouped.items()
     }
-    recommendations = generate_recommendations(current) if standards.complete else []
+    recommendations = generate_recommendations(current)
     return AnalysisResult(
         athlete=athlete,
         records=current,
@@ -307,7 +406,7 @@ def build_preview_result(result: AnalysisResult) -> AnalysisResult:
         records=result.records,
         standards=preview,
         joint_priorities={},
-        recommendations=["Sheet 3 判定阈值尚未配置，本页仅展示重新计算的比例与双侧差异数值"],
+        recommendations=result.recommendations,
         warnings=result.warnings,
         original_comments=result.original_comments,
     )

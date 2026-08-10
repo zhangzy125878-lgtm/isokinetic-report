@@ -29,6 +29,15 @@ class RunnerTests(unittest.TestCase):
             (root / "项目_等速肌力输入.xlsx").touch()
             self.assertEqual(_excel_candidates(root, preferred)[0], expected)
 
+    def test_preferred_directory_accepts_any_xlsx_name(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            preferred = root / "preferred"
+            preferred.mkdir()
+            expected = preferred / "运动员姓名.xlsx"
+            expected.touch()
+            self.assertEqual(_excel_candidates(root, preferred), [expected])
+
     def test_full_template_has_priority(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

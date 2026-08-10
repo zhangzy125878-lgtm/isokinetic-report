@@ -2,10 +2,13 @@ import unittest
 
 from isokinetic_report.analysis import (
     calculate_bilateral_difference,
+    calculate_bilateral_differences,
     calculate_ratio,
+    calculate_ratios,
     classify_asymmetry,
     classify_joint_priority,
     classify_ratio,
+    generate_recommendations,
 )
 from isokinetic_report.models import AsymmetryLevel, GaugeConfig, PriorityRule, TestRecord
 
@@ -15,6 +18,12 @@ def gauge() -> GaugeConfig:
 
 
 class CalculationTests(unittest.TestCase):
+    def _record(self, joint, speed, muscle_a, muscle_b, left_a, left_b, right_a, right_b):
+        record = TestRecord(4, "7.3", True, joint, speed, muscle_a, muscle_b, left_a, left_b, right_a, right_b)
+        calculate_ratios(record)
+        calculate_bilateral_differences(record)
+        return record
+
     def test_ratio_and_bilateral_difference(self):
         self.assertAlmostEqual(calculate_ratio(72, 136), 72 / 136)
         self.assertAlmostEqual(calculate_bilateral_difference(72, 94), 22 / 94)
@@ -47,6 +56,27 @@ class CalculationTests(unittest.TestCase):
         record.b_asymmetry_state = "正常"
         rules = [PriorityRule("重点一", 1, "重点", "比值红色项数", ">=", 1, "任一", "#FF0000")]
         self.assertEqual(classify_joint_priority([record], rules), "重点")
+
+    def test_weaknesses_merge_speeds_and_ratio_overrides_asymmetry(self):
+        records = [
+            self._record("肩关节内外旋", "慢速", "外旋肌", "内旋肌", 60, 100, 74, 100),
+            self._record("肩关节内外旋", "快速", "外旋肌", "内旋肌", 55, 100, 70, 100),
+            self._record("膝关节屈伸", "慢速", "屈肌", "伸肌", 60, 100, 70, 100),
+            self._record("膝关节屈伸", "快速", "屈肌", "伸肌", 60, 100, 70, 100),
+        ]
+        summaries = generate_recommendations(records)
+        self.assertEqual(
+            summaries,
+            [
+                "（1）肩关节：双侧外旋肌最大力量和快速力量不足；",
+                "（2）膝关节：左侧屈肌最大力量和快速力量不足；",
+            ],
+        )
+        self.assertFalse(any(word in "".join(summaries) for word in ["加强", "改善", "训练", "提升", "复核", "建议"]))
+
+    def test_weaknesses_are_empty_when_no_exception_exists(self):
+        records = [self._record("肩关节内外旋", "慢速", "外旋肌", "内旋肌", 80, 100, 80, 100)]
+        self.assertEqual(generate_recommendations(records), [])
 
 
 if __name__ == "__main__":

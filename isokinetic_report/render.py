@@ -175,18 +175,62 @@ def _draw_header(fig, result: AnalysisResult, page_number: int = 1, total_pages:
         fig.text(0.71, 0.883 - index * 0.022, text, fontsize=7.5, color="#172033", va="center")
 
 
-def _draw_recommendations(fig, result: AnalysisResult) -> None:
+def _draw_emphasized_line(fig, x: float, y: float, text: str, emphasized: set[str], max_width: float) -> None:
+    tokens = sorted((token for token in emphasized if token), key=len, reverse=True)
+    parts = re.split(f"({'|'.join(re.escape(token) for token in tokens)})", text) if tokens else [text]
+    parts = [part for part in parts if part]
+    renderer = fig.canvas.get_renderer()
+    selected_size = 7.0
+    for size in (7.0, 6.5, 6.0, 5.5):
+        width = 0.0
+        for part in parts:
+            weight = "bold" if part in emphasized else "normal"
+            prop = font_manager.FontProperties(family=plt.rcParams["font.sans-serif"], size=size, weight=weight)
+            width += renderer.get_text_width_height_descent(part, prop, ismath=False)[0] / fig.bbox.width
+        selected_size = size
+        if width <= max_width:
+            break
+
+    cursor = x
+    for part in parts:
+        is_emphasized = part in emphasized
+        prop = font_manager.FontProperties(
+            family=plt.rcParams["font.sans-serif"],
+            size=selected_size,
+            weight="bold" if is_emphasized else "normal",
+        )
+        width = renderer.get_text_width_height_descent(part, prop, ismath=False)[0] / fig.bbox.width
+        fig.text(cursor, y, part, ha="left", va="center", fontproperties=prop, color="#172033")
+        if is_emphasized:
+            fig.add_artist(
+                plt.Line2D(
+                    [cursor, cursor + width],
+                    [y - 0.004, y - 0.004],
+                    transform=fig.transFigure,
+                    color="#172033",
+                    linewidth=0.55,
+                )
+            )
+        cursor += width
+
+
+def _draw_weaknesses(fig, result: AnalysisResult) -> None:
     palette = result.standards.palette
     _box(fig, 0.035, 0.025, 0.93, 0.105, palette["边框色"])
-    fig.text(0.06, 0.108, "教练建议（简版）", fontsize=11, fontweight="bold", color=palette["主色"], va="center")
+    fig.text(0.06, 0.108, "关键薄弱环节", fontsize=11, fontweight="bold", color=palette["主色"], va="center")
     items = result.recommendations[:4]
+    emphasized = {
+        "左侧",
+        "右侧",
+        "双侧",
+        "最大力量",
+        "快速力量",
+        *(record.muscle_a if record.muscle_a.endswith(("肌", "肌群")) else f"{record.muscle_a}肌" for record in result.records),
+        *(record.muscle_b if record.muscle_b.endswith(("肌", "肌群")) else f"{record.muscle_b}肌" for record in result.records),
+    }
     for index, item in enumerate(items):
-        col = index % 2
-        row = index // 2
-        x = 0.065 + col * 0.46
-        y = 0.075 - row * 0.033
-        fig.text(x, y, str(index + 1), ha="center", va="center", fontsize=8, fontweight="bold", color="white", bbox={"boxstyle": "circle,pad=0.35", "facecolor": palette["主色"], "edgecolor": palette["主色"]})
-        fig.text(x + 0.026, y, item, ha="left", va="center", fontsize=7.3, color="#172033")
+        joint_name = item.split("）", 1)[-1].split("：", 1)[0]
+        _draw_emphasized_line(fig, 0.06, 0.083 - index * 0.0185, item, emphasized | {joint_name}, 0.88)
 
 
 def _safe_filename_part(value: str) -> str:
@@ -223,7 +267,7 @@ def generate_report(result: AnalysisResult, output_dir: Path, include_pdf: bool 
         _draw_header(fig, result, page_index, len(pages))
         for index, config in enumerate(page_joints):
             draw_joint_panel(fig, panel_rects[index], config.joint, result, horizontal=index == 4)
-        _draw_recommendations(fig, result)
+        _draw_weaknesses(fig, result)
         suffix = f"_第{page_index}页" if len(pages) > 1 else ""
         png_path = output_dir / f"{base}{suffix}.png"
         fig.savefig(png_path, dpi=200, facecolor="white")

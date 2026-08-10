@@ -8,7 +8,8 @@
 
 - Sheet 1 只读取个人信息。
 - Sheet 2 是唯一测试数值来源。
-- Sheet 3 是唯一阈值和判定规则来源。
+- Sheet 3 是仪表盘区间、状态颜色和重点标签的配置来源。
+- 底部“关键薄弱环节”按程序内固定的关节比例范围与 `>0.10` 双侧差异规则汇总，不读取 Sheet 4 结论。
 - Sheet 4 只作为人工结论存档，不参与数值或状态判定。
 - 原始 Excel 不会被修改。
 - Sheet 3 配置不完整时不使用默认医学或运动科学标准，并生成明确标注的中性“预览版”；`--validate-only` 仍会返回配置错误。
@@ -22,7 +23,7 @@ python main.py "输入文件.xlsx" --validate-only
 python main.py "输入文件.xlsx" --output-dir output
 ```
 
-最简单的方式是在项目目录运行 `python run_report.py`。它会优先从 `D:\博士\江苏体科所\等速测试新报告_用于测试` 调取名称含“等速肌力”的 `.xlsx`，再检查项目目录和 Downloads；报告统一输出到项目的 `output` 目录。也可以把 Excel 路径拖到脚本命令后：
+最简单的方式是在项目目录运行 `python run_report.py`。它会优先从 `D:\博士\江苏体科所\等速测试新报告_用于测试\运行文件夹` 调取 `.xlsx`，再检查项目目录和 Downloads；报告统一输出到项目的 `output` 目录。也可以把 Excel 路径拖到脚本命令后：
 
 ```powershell
 python run_report.py "C:\路径\输入文件.xlsx"

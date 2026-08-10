@@ -17,6 +17,17 @@ from .analysis import RATIO_STATUS_LABELS
 from .models import AnalysisResult, AsymmetryLevel, GaugeConfig, ReportPaths, TestRecord
 
 
+VISUAL_BAND_KEYS = (
+    "明显偏离",
+    "中度偏离",
+    "轻度偏离",
+    "目标范围",
+    "轻度偏离",
+    "中度偏离",
+    "明显偏离",
+)
+
+
 def _configure_chinese_font() -> None:
     preferred = ["Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "Arial Unicode MS"]
     installed = {font.name for font in font_manager.fontManager.ttflist}
@@ -51,21 +62,20 @@ def _angle(value: float, config: GaugeConfig) -> float:
     return 200 - 220 * fraction
 
 
+def _visual_segment_angles() -> list[tuple[float, float]]:
+    segment_width = 220 / len(VISUAL_BAND_KEYS)
+    return [
+        (200 - (index + 1) * segment_width, 200 - index * segment_width)
+        for index in range(len(VISUAL_BAND_KEYS))
+    ]
+
+
 def draw_gauge(fig, rect: tuple[float, float, float, float], value: Optional[float], config: GaugeConfig, palette: dict[str, str], side: str) -> None:
     ax = fig.add_axes(rect, zorder=2)
     ax.set_aspect("equal")
     ax.axis("off")
-    segments = [
-        (config.gauge_min, config.low_red_upper, palette["明显偏离"]),
-        (config.low_red_upper, config.low_orange_upper, palette["中度偏离"]),
-        (config.low_orange_upper, config.target_low, palette["轻度偏离"]),
-        (config.target_low, config.target_high, palette["目标范围"]),
-        (config.target_high, config.high_yellow_upper, palette["轻度偏离"]),
-        (config.high_yellow_upper, config.high_orange_upper, palette["中度偏离"]),
-        (config.high_orange_upper, config.gauge_max, palette["明显偏离"]),
-    ]
-    for low, high, color in segments:
-        ax.add_patch(Wedge((0, 0), 1.0, _angle(high, config), _angle(low, config), width=0.28, facecolor=color, edgecolor="white", linewidth=0.8))
+    for (theta1, theta2), color_key in zip(_visual_segment_angles(), VISUAL_BAND_KEYS):
+        ax.add_patch(Wedge((0, 0), 1.0, theta1, theta2, width=0.28, facecolor=palette[color_key], edgecolor="white", linewidth=0.8))
     if value is not None:
         angle = math.radians(_angle(value, config))
         ax.plot([0, 0.68 * math.cos(angle)], [0, 0.68 * math.sin(angle)], color=palette["主色"], linewidth=2.3, solid_capstyle="round")

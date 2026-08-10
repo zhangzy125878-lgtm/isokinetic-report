@@ -56,18 +56,34 @@ def _fmt(value: Optional[float]) -> str:
     return "—" if value is None else f"{value:.2f}"
 
 
+def _visual_edges() -> list[float]:
+    segment_width = 220 / len(VISUAL_BAND_KEYS)
+    return [200 - index * segment_width for index in range(len(VISUAL_BAND_KEYS) + 1)]
+
+
 def _angle(value: float, config: GaugeConfig) -> float:
-    clamped = min(max(value, config.gauge_min), config.gauge_max)
-    fraction = (clamped - config.gauge_min) / (config.gauge_max - config.gauge_min)
-    return 200 - 220 * fraction
+    numeric_edges = [
+        config.gauge_min,
+        config.low_red_upper,
+        config.low_orange_upper,
+        config.target_low,
+        config.target_high,
+        config.high_yellow_upper,
+        config.high_orange_upper,
+        config.gauge_max,
+    ]
+    visual_edges = _visual_edges()
+    clamped = min(max(value, numeric_edges[0]), numeric_edges[-1])
+    for index, (low, high) in enumerate(zip(numeric_edges, numeric_edges[1:])):
+        if clamped <= high or index == len(numeric_edges) - 2:
+            fraction = (clamped - low) / (high - low)
+            return visual_edges[index] + fraction * (visual_edges[index + 1] - visual_edges[index])
+    return visual_edges[-1]
 
 
 def _visual_segment_angles() -> list[tuple[float, float]]:
-    segment_width = 220 / len(VISUAL_BAND_KEYS)
-    return [
-        (200 - (index + 1) * segment_width, 200 - index * segment_width)
-        for index in range(len(VISUAL_BAND_KEYS))
-    ]
+    edges = _visual_edges()
+    return [(edges[index + 1], edges[index]) for index in range(len(VISUAL_BAND_KEYS))]
 
 
 def draw_gauge(fig, rect: tuple[float, float, float, float], value: Optional[float], config: GaugeConfig, palette: dict[str, str], side: str) -> None:

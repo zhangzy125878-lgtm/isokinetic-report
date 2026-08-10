@@ -1,7 +1,7 @@
 import unittest
 
 from isokinetic_report.models import GaugeConfig
-from isokinetic_report.render import VISUAL_BAND_KEYS, _angle, _visual_segment_angles
+from isokinetic_report.render import VISUAL_BAND_KEYS, _angle, _page_layout, _visual_segment_angles
 
 
 class GaugeRenderingTests(unittest.TestCase):
@@ -28,6 +28,14 @@ class GaugeRenderingTests(unittest.TestCase):
             self.assertLess(green_low_angle, _angle(ratio, config))
             self.assertLess(_angle(ratio, config), green_high_angle)
         self.assertLess(_angle(0.75, config), green_low_angle)
+
+    def test_partial_pages_use_full_width_last_panel_and_crop(self):
+        three_panels, weakness_y, crop_bottom, font_size = _page_layout(3)
+        self.assertEqual(len(three_panels), 3)
+        self.assertGreater(three_panels[-1][2], 0.8)
+        self.assertGreater(weakness_y, 0.025)
+        self.assertGreater(crop_bottom, 0)
+        self.assertGreater(font_size, 7.5)
 
 
 if __name__ == "__main__":

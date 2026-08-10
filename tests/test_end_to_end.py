@@ -87,6 +87,16 @@ class EndToEndTests(unittest.TestCase):
                 self.assertEqual(image.size, (1600, 2000))
             self.assertEqual(paths.pdf.read_bytes()[:4], b"%PDF")
 
+    def test_three_joint_report_crops_unused_lower_space(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workbook_path = root / "input_3.xlsx"
+            self._make_workbook(workbook_path, joint_count=3)
+            athlete, records, standards, comments = load_workbook_data(workbook_path)
+            paths = generate_report(analyze(athlete, records, standards, comments), root / "output")
+            with Image.open(paths.png) as image:
+                self.assertEqual(image.size, (1600, 1560))
+
     def test_render_six_to_ten_joints_as_two_pages(self):
         for joint_count in (6, 10):
             with self.subTest(joint_count=joint_count), tempfile.TemporaryDirectory() as temp:
@@ -97,9 +107,10 @@ class EndToEndTests(unittest.TestCase):
                 result = analyze(athlete, records, standards, comments)
                 paths = generate_report(result, root / "output")
                 self.assertEqual(len(paths.pngs), 2)
-                for png in paths.pngs:
+                expected_sizes = [(1600, 2000), (1600, 1120)] if joint_count == 6 else [(1600, 2000), (1600, 2000)]
+                for png, expected_size in zip(paths.pngs, expected_sizes):
                     with Image.open(png) as image:
-                        self.assertEqual(image.size, (1600, 2000))
+                        self.assertEqual(image.size, expected_size)
                 self.assertTrue(paths.pdf.exists())
                 pdf_bytes = paths.pdf.read_bytes()
                 self.assertEqual(len(re.findall(rb"/Type\s*/Page\b", pdf_bytes)), 2)

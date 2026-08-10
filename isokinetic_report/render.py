@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib import font_manager
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.patches import Circle, FancyBboxPatch, Wedge
+from matplotlib.transforms import Bbox
 
 from .analysis import RATIO_STATUS_LABELS
 from .models import AnalysisResult, AsymmetryLevel, GaugeConfig, ReportPaths, TestRecord
@@ -201,13 +202,22 @@ def _draw_header(fig, result: AnalysisResult, page_number: int = 1, total_pages:
         fig.text(0.71, 0.883 - index * 0.022, text, fontsize=7.5, color="#172033", va="center")
 
 
-def _draw_emphasized_line(fig, x: float, y: float, text: str, emphasized: set[str], max_width: float) -> None:
+def _draw_emphasized_line(
+    fig,
+    x: float,
+    y: float,
+    text: str,
+    emphasized: set[str],
+    max_width: float,
+    max_font_size: float,
+) -> None:
     tokens = sorted((token for token in emphasized if token), key=len, reverse=True)
     parts = re.split(f"({'|'.join(re.escape(token) for token in tokens)})", text) if tokens else [text]
     parts = [part for part in parts if part]
     renderer = fig.canvas.get_renderer()
-    selected_size = 7.0
-    for size in (7.0, 6.5, 6.0, 5.5):
+    font_sizes = [max_font_size - 0.5 * index for index in range(int((max_font_size - 5.5) / 0.5) + 1)]
+    selected_size = font_sizes[-1]
+    for size in font_sizes:
         width = 0.0
         for part in parts:
             weight = "bold" if part in emphasized else "normal"
@@ -240,10 +250,11 @@ def _draw_emphasized_line(fig, x: float, y: float, text: str, emphasized: set[st
         cursor += width
 
 
-def _draw_weaknesses(fig, result: AnalysisResult) -> None:
+def _draw_weaknesses(fig, result: AnalysisResult, box_y: float, max_font_size: float) -> None:
     palette = result.standards.palette
-    _box(fig, 0.035, 0.025, 0.93, 0.105, palette["边框色"])
-    fig.text(0.06, 0.108, "关键薄弱环节", fontsize=11, fontweight="bold", color=palette["主色"], va="center")
+    box_height = 0.105
+    _box(fig, 0.035, box_y, 0.93, box_height, palette["边框色"])
+    fig.text(0.06, box_y + box_height - 0.022, "关键薄弱环节", fontsize=12 if max_font_size >= 8.5 else 11, fontweight="bold", color=palette["主色"], va="center")
     items = result.recommendations[:4]
     emphasized = {
         "左侧",
@@ -256,7 +267,28 @@ def _draw_weaknesses(fig, result: AnalysisResult) -> None:
     }
     for index, item in enumerate(items):
         joint_name = item.split("）", 1)[-1].split("：", 1)[0]
-        _draw_emphasized_line(fig, 0.06, 0.083 - index * 0.0185, item, emphasized | {joint_name}, 0.88)
+        line_y = box_y + box_height - 0.047 - index * 0.0185
+        _draw_emphasized_line(fig, 0.06, line_y, item, emphasized | {joint_name}, 0.88, max_font_size)
+
+
+def _page_layout(joint_count: int) -> tuple[list[tuple[float, float, float, float]], float, float, float]:
+    half_width = 0.465
+    top_left = (0.025, 0.595, half_width, 0.205)
+    top_right = (0.51, 0.595, half_width, 0.205)
+    middle_left = (0.025, 0.370, half_width, 0.205)
+    middle_right = (0.51, 0.370, half_width, 0.205)
+    top_full = (0.035, 0.595, 0.93, 0.205)
+    middle_full = (0.035, 0.370, 0.93, 0.205)
+    bottom_full = (0.035, 0.155, 0.93, 0.190)
+    if joint_count == 1:
+        return [top_full], 0.455, 0.44, 10.0
+    if joint_count == 2:
+        return [top_left, top_right], 0.455, 0.44, 9.0
+    if joint_count == 3:
+        return [top_left, top_right, middle_full], 0.235, 0.22, 8.5
+    if joint_count == 4:
+        return [top_left, top_right, middle_left, middle_right], 0.235, 0.22, 8.0
+    return [top_left, top_right, middle_left, middle_right, bottom_full], 0.025, 0.0, 7.5
 
 
 def _safe_filename_part(value: str) -> str:
@@ -273,13 +305,6 @@ def generate_report(result: AnalysisResult, output_dir: Path, include_pdf: bool 
     if len(joints) > 10:
         raise ValueError(f"当前版本最多支持 10 个关节，实际读取到 {len(joints)} 个")
     pages = [joints[index:index + 5] for index in range(0, len(joints), 5)]
-    panel_rects = [
-        (0.025, 0.595, 0.465, 0.205),
-        (0.51, 0.595, 0.465, 0.205),
-        (0.025, 0.370, 0.465, 0.205),
-        (0.51, 0.370, 0.465, 0.205),
-        (0.035, 0.155, 0.93, 0.190),
-    ]
     output_dir.mkdir(parents=True, exist_ok=True)
     date_part = _safe_filename_part(result.athlete.test_date.replace("-", ""))
     base = f"{_safe_filename_part(result.athlete.name)}_等速肌力综合报告_{date_part}"
@@ -287,22 +312,24 @@ def generate_report(result: AnalysisResult, output_dir: Path, include_pdf: bool 
         base += "_预览版"
     pdf_path = output_dir / f"{base}.pdf" if include_pdf else None
     png_paths: list[Path] = []
-    figures = []
+    figures: list[tuple[object, Optional[Bbox]]] = []
     for page_index, page_joints in enumerate(pages, start=1):
         fig = plt.figure(figsize=(8, 10), dpi=200, facecolor="white")
         _draw_header(fig, result, page_index, len(pages))
+        panel_rects, weakness_y, crop_bottom, weakness_font_size = _page_layout(len(page_joints))
         for index, config in enumerate(page_joints):
-            draw_joint_panel(fig, panel_rects[index], config.joint, result, horizontal=index == 4)
-        _draw_weaknesses(fig, result)
+            draw_joint_panel(fig, panel_rects[index], config.joint, result, horizontal=panel_rects[index][2] > 0.8)
+        _draw_weaknesses(fig, result, weakness_y, weakness_font_size)
         suffix = f"_第{page_index}页" if len(pages) > 1 else ""
         png_path = output_dir / f"{base}{suffix}.png"
-        fig.savefig(png_path, dpi=200, facecolor="white")
+        crop_box = Bbox.from_bounds(0, 10 * crop_bottom, 8, 10 * (1 - crop_bottom)) if crop_bottom else None
+        fig.savefig(png_path, dpi=200, facecolor="white", bbox_inches=crop_box)
         png_paths.append(png_path)
-        figures.append(fig)
+        figures.append((fig, crop_box))
     if pdf_path:
         with PdfPages(pdf_path) as pdf:
-            for fig in figures:
-                pdf.savefig(fig, facecolor="white")
-    for fig in figures:
+            for fig, crop_box in figures:
+                pdf.savefig(fig, facecolor="white", bbox_inches=crop_box)
+    for fig, _crop_box in figures:
         plt.close(fig)
     return ReportPaths(png=png_paths[0], pdf=pdf_path, additional_pngs=tuple(png_paths[1:]))

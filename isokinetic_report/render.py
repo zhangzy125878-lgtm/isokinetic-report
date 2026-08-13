@@ -202,18 +202,14 @@ def _draw_header(fig, result: AnalysisResult, page_number: int = 1, total_pages:
         fig.text(0.71, 0.883 - index * 0.022, text, fontsize=7.5, color="#172033", va="center")
 
 
-def _draw_emphasized_line(
-    fig,
-    x: float,
-    y: float,
-    text: str,
-    emphasized: set[str],
-    max_width: float,
-    max_font_size: float,
-) -> None:
+def _emphasized_parts(text: str, emphasized: set[str]) -> list[str]:
     tokens = sorted((token for token in emphasized if token), key=len, reverse=True)
     parts = re.split(f"({'|'.join(re.escape(token) for token in tokens)})", text) if tokens else [text]
-    parts = [part for part in parts if part]
+    return [part for part in parts if part]
+
+
+def _fit_emphasized_font_size(fig, text: str, emphasized: set[str], max_width: float, max_font_size: float) -> float:
+    parts = _emphasized_parts(text, emphasized)
     renderer = fig.canvas.get_renderer()
     font_sizes = [max_font_size - 0.5 * index for index in range(int((max_font_size - 5.5) / 0.5) + 1)]
     selected_size = font_sizes[-1]
@@ -226,13 +222,26 @@ def _draw_emphasized_line(
         selected_size = size
         if width <= max_width:
             break
+    return selected_size
+
+
+def _draw_emphasized_line(
+    fig,
+    x: float,
+    y: float,
+    text: str,
+    emphasized: set[str],
+    font_size: float,
+) -> None:
+    parts = _emphasized_parts(text, emphasized)
+    renderer = fig.canvas.get_renderer()
 
     cursor = x
     for part in parts:
         is_emphasized = part in emphasized
         prop = font_manager.FontProperties(
             family=plt.rcParams["font.sans-serif"],
-            size=selected_size,
+            size=font_size,
             weight="bold" if is_emphasized else "normal",
         )
         width = renderer.get_text_width_height_descent(part, prop, ismath=False)[0] / fig.bbox.width
@@ -265,10 +274,14 @@ def _draw_weaknesses(fig, result: AnalysisResult, box_y: float, max_font_size: f
         *(record.muscle_a if record.muscle_a.endswith(("肌", "肌群")) else f"{record.muscle_a}肌" for record in result.records),
         *(record.muscle_b if record.muscle_b.endswith(("肌", "肌群")) else f"{record.muscle_b}肌" for record in result.records),
     }
+    item_emphasis = [emphasized | {item.split("）", 1)[-1].split("：", 1)[0]} for item in items]
+    uniform_font_size = min(
+        (_fit_emphasized_font_size(fig, item, item_emphasis[index], 0.88, max_font_size) for index, item in enumerate(items)),
+        default=max_font_size,
+    )
     for index, item in enumerate(items):
-        joint_name = item.split("）", 1)[-1].split("：", 1)[0]
         line_y = box_y + box_height - 0.047 - index * 0.0185
-        _draw_emphasized_line(fig, 0.06, line_y, item, emphasized | {joint_name}, 0.88, max_font_size)
+        _draw_emphasized_line(fig, 0.06, line_y, item, item_emphasis[index], uniform_font_size)
 
 
 def _page_layout(joint_count: int) -> tuple[list[tuple[float, float, float, float]], float, float, float]:

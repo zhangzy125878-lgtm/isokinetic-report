@@ -28,17 +28,30 @@ def _torque_lines(record: Optional[TestRecord], side: str) -> tuple[str, str]:
         values = (record.left_a, record.left_b)
     else:
         values = (record.right_a, record.right_b)
-    return (
-        f"{_muscle_label(record.muscle_a)} {_fmt_torque(values[0])} Nm",
-        f"{_muscle_label(record.muscle_b)} {_fmt_torque(values[1])} Nm",
-    )
+    lines = []
+    for muscle, value in zip((record.muscle_a, record.muscle_b), values):
+        lines.append(f"{_muscle_label(muscle)} {_fmt_torque(value)} Nm" if muscle else "")
+    return lines[0], lines[1]
+
+
+def _report_joints(result: AnalysisResult) -> list[tuple[str, int]]:
+    configured = sorted(result.standards.gauges.values(), key=lambda item: item.display_order)
+    joints = [(config.joint, config.display_order) for config in configured]
+    seen = {joint for joint, _order in joints}
+    next_order = max((order for _joint, order in joints), default=0) + 1
+    for record in result.records:
+        if record.joint not in seen:
+            joints.append((record.joint, next_order))
+            seen.add(record.joint)
+            next_order += 1
+    return joints
 
 
 def draw_gauge(
     fig,
     rect: tuple[float, float, float, float],
     value: Optional[float],
-    config: GaugeConfig,
+    config: Optional[GaugeConfig],
     palette: dict[str, str],
     side: str,
     torque_lines: tuple[str, str],
@@ -47,8 +60,9 @@ def draw_gauge(
     ax.set_aspect("equal")
     ax.axis("off")
     for (theta1, theta2), color_key in zip(base._visual_segment_angles(), base.VISUAL_BAND_KEYS):
-        ax.add_patch(Wedge((0, 0), 1.0, theta1, theta2, width=0.28, facecolor=palette[color_key], edgecolor="white", linewidth=0.8))
-    if value is not None:
+        color = palette[color_key] if config is not None else "#E2E8F0"
+        ax.add_patch(Wedge((0, 0), 1.0, theta1, theta2, width=0.28, facecolor=color, edgecolor="white", linewidth=0.8))
+    if value is not None and config is not None:
         angle = math.radians(base._angle(value, config))
         ax.plot([0, 0.68 * math.cos(angle)], [0, 0.68 * math.sin(angle)], color=palette["主色"], linewidth=2.3, solid_capstyle="round")
         ax.add_patch(Circle((0, 0), 0.07, color=palette["主色"]))
@@ -57,7 +71,8 @@ def draw_gauge(
     ax.text(0, 1.07, side, ha="center", va="bottom", fontsize=7.5, color="#172033")
     ax.text(0, -0.28, base._fmt(value), ha="center", va="center", fontsize=9, fontweight="bold", color=palette["主色"] if value is not None else palette["缺失"])
     ax.text(0, -0.53, torque_lines[0], ha="center", va="center", fontsize=5.8, color="#172033")
-    ax.text(0, -0.73, torque_lines[1], ha="center", va="center", fontsize=5.8, color="#172033")
+    if torque_lines[1]:
+        ax.text(0, -0.73, torque_lines[1], ha="center", va="center", fontsize=5.8, color="#172033")
 
 
 def _draw_speed_block(
@@ -67,7 +82,7 @@ def _draw_speed_block(
     width: float,
     height: float,
     record: Optional[TestRecord],
-    config: GaugeConfig,
+    config: Optional[GaugeConfig],
     palette: dict[str, str],
     levels,
 ) -> None:
@@ -83,13 +98,21 @@ def _draw_speed_block(
     base._draw_asymmetry(fig, x + width - asym_w, y + height * 0.08, asym_w, height * 0.84, record, palette, levels)
 
 
-def draw_joint_panel(fig, rect: tuple[float, float, float, float], joint: str, result: AnalysisResult, horizontal: bool = False) -> None:
+def draw_joint_panel(
+    fig,
+    rect: tuple[float, float, float, float],
+    joint: str,
+    display_order: int,
+    result: AnalysisResult,
+    horizontal: bool = False,
+) -> None:
     x, y, width, height = rect
     palette = result.standards.palette
-    config = result.standards.gauges[joint]
+    config = result.standards.gauges.get(joint)
     base._box(fig, x, y, width, height, palette["边框色"], radius=0.012, lw=0.75)
-    fig.text(x + 0.012, y + height - 0.018, f"{config.display_order}. {joint}", ha="left", va="center", fontsize=11, fontweight="bold", color=palette["主色"])
-    fig.text(x + width * 0.55, y + height - 0.018, f"目标区间  {config.target_low:.2f}–{config.target_high:.2f}", ha="center", va="center", fontsize=7.5, color=palette["主色"], bbox={"boxstyle": "round,pad=0.25", "facecolor": "#F1F6FF", "edgecolor": palette["边框色"], "linewidth": 0.5})
+    fig.text(x + 0.012, y + height - 0.018, f"{display_order}. {joint}", ha="left", va="center", fontsize=11, fontweight="bold", color=palette["主色"])
+    badge = f"目标区间  {config.target_low:.2f}–{config.target_high:.2f}" if config else "峰力矩数据"
+    fig.text(x + width * 0.55, y + height - 0.018, badge, ha="center", va="center", fontsize=7.5, color=palette["主色"], bbox={"boxstyle": "round,pad=0.25", "facecolor": "#F1F6FF", "edgecolor": palette["边框色"], "linewidth": 0.5})
     priority = result.joint_priorities.get(joint)
     if priority:
         matching_rule = next((rule for rule in result.standards.priority_rules if rule.enabled and rule.output_label == priority and rule.label_color), None)
@@ -115,7 +138,7 @@ def generate_report(result: AnalysisResult, output_dir: Path, include_pdf: bool 
     if not result.standards.complete:
         raise ValueError("Sheet 3 配置不完整，不能生成正式判读报告")
     base._configure_chinese_font()
-    joints = sorted(result.standards.gauges.values(), key=lambda item: item.display_order)
+    joints = _report_joints(result)
     if not joints:
         raise ValueError("没有可绘制的关节配置")
     if len(joints) > 10:
@@ -134,8 +157,8 @@ def generate_report(result: AnalysisResult, output_dir: Path, include_pdf: bool 
         fig = plt.figure(figsize=(8, page_height), dpi=200, facecolor="white")
         base._draw_header(fig, result, page_index, len(pages))
         panel_rects, weakness_y, crop_bottom, weakness_font_size = base._page_layout(len(page_joints))
-        for index, config in enumerate(page_joints):
-            draw_joint_panel(fig, panel_rects[index], config.joint, result, horizontal=panel_rects[index][2] > 0.8)
+        for index, (joint, display_order) in enumerate(page_joints):
+            draw_joint_panel(fig, panel_rects[index], joint, display_order, result, horizontal=panel_rects[index][2] > 0.8)
         base._draw_weaknesses(fig, result, weakness_y, weakness_font_size)
         suffix = f"_第{page_index}页" if len(pages) > 1 else ""
         png_path = output_dir / f"{filename_base}{suffix}.png"

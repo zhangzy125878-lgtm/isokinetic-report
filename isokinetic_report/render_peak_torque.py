@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,7 @@ from matplotlib.patches import Circle, Wedge
 from matplotlib.transforms import Bbox
 
 from . import render as base
+from .analysis import generate_recommendations
 from .models import AnalysisResult, GaugeConfig, ReportPaths, TestRecord
 
 
@@ -45,6 +47,11 @@ def _report_joints(result: AnalysisResult) -> list[tuple[str, int]]:
             seen.add(record.joint)
             next_order += 1
     return joints
+
+
+def _page_result(result: AnalysisResult, joints: set[str]) -> AnalysisResult:
+    page_records = [record for record in result.records if record.joint in joints]
+    return replace(result, records=page_records, recommendations=generate_recommendations(page_records))
 
 
 def draw_gauge(
@@ -159,7 +166,8 @@ def generate_report(result: AnalysisResult, output_dir: Path, include_pdf: bool 
         panel_rects, weakness_y, crop_bottom, weakness_font_size = base._page_layout(len(page_joints))
         for index, (joint, display_order) in enumerate(page_joints):
             draw_joint_panel(fig, panel_rects[index], joint, display_order, result, horizontal=panel_rects[index][2] > 0.8)
-        base._draw_weaknesses(fig, result, weakness_y, weakness_font_size)
+        page_result = _page_result(result, {joint for joint, _display_order in page_joints})
+        base._draw_weaknesses(fig, page_result, weakness_y, weakness_font_size)
         suffix = f"_第{page_index}页" if len(pages) > 1 else ""
         png_path = output_dir / f"{filename_base}{suffix}.png"
         crop_box = Bbox.from_bounds(0, page_height * crop_bottom, 8, page_height * (1 - crop_bottom)) if crop_bottom else None

@@ -7,7 +7,7 @@ from PIL import Image
 from isokinetic_report.analysis import analyze
 from isokinetic_report.excel_io import load_workbook_data
 from isokinetic_report.models import TestRecord
-from isokinetic_report.render_peak_torque import _report_joints, _torque_lines, generate_report
+from isokinetic_report.render_peak_torque import _page_result, _report_joints, _torque_lines, generate_report
 from tests import test_end_to_end
 
 
@@ -30,6 +30,18 @@ class PeakTorqueReportTests(unittest.TestCase):
             records.append(TestRecord(18, "8.10", True, "躯干旋转", "慢速", "旋转", "", 111, None, 105, None))
             result = analyze(athlete, records, standards, comments)
             self.assertEqual(_report_joints(result)[-1], ("躯干旋转", 5))
+
+    def test_weaknesses_are_limited_to_the_current_page_joints(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workbook_path = root / "input_6.xlsx"
+            test_end_to_end.EndToEndTests()._make_workbook(workbook_path, joint_count=6)
+            athlete, records, standards, comments = load_workbook_data(workbook_path)
+            result = analyze(athlete, records, standards, comments)
+            first_page = _page_result(result, {"关节1", "关节2", "关节3", "关节4", "关节5"})
+            second_page = _page_result(result, {"关节6"})
+            self.assertTrue(all("关节6" not in item for item in first_page.recommendations))
+            self.assertTrue(all("关节6" in item for item in second_page.recommendations))
 
     def test_four_joint_peak_torque_report_uses_separate_taller_output(self):
         with tempfile.TemporaryDirectory() as temp:

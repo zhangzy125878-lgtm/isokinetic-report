@@ -32,6 +32,16 @@ python run_report.py "C:\路径\输入文件.xlsx"
 
 默认同时输出 PNG 和 PDF；使用 `--no-pdf` 可只输出 PNG。
 
+## 峰力矩显示版（独立副本）
+
+原版 `run_report.py` 和原报告格式保持不变。需要在每个比例仪表盘下方同时显示两组峰力矩时，运行：
+
+```powershell
+python run_report_peak_torque.py
+```
+
+该版本仍从 `D:\博士\江苏体科所\等速测试新报告_用于测试\运行文件夹` 读取 Excel，结果单独保存到 `output_peak_torque`，文件名带有“峰力矩版”，不会覆盖原版报告。
+
 ## Sheet 3 最终结构
 
 四张配置表可以放在 `3_绘图配置` 的不同区域。程序按表头定位，不依赖固定行号。

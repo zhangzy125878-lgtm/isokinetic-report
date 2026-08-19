@@ -2,16 +2,28 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import openpyxl
 from PIL import Image
 
 from isokinetic_report.analysis import analyze
 from isokinetic_report.excel_io import load_workbook_data
 from isokinetic_report.models import TestRecord
 from isokinetic_report.render_peak_torque import _page_result, _report_joints, _torque_lines, generate_report
+from run_report_peak_torque import _directory_excels, run as run_peak_torque
 from tests import test_end_to_end
 
 
 class PeakTorqueReportTests(unittest.TestCase):
+    def test_directory_excels_returns_all_workbooks_and_skips_temporary_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            expected = [root / f"运动员{index}.xlsx" for index in range(1, 5)]
+            for path in reversed(expected):
+                path.touch()
+            (root / "~$正在编辑.xlsx").touch()
+            (root / "说明.txt").touch()
+            self.assertEqual(_directory_excels(root), expected)
+
     def test_torque_lines_include_both_muscles_and_units(self):
         record = TestRecord(4, "7.3", True, "膝关节屈伸", "慢速", "屈肌", "伸肌", 99, 163, 69, 103)
         self.assertEqual(_torque_lines(record, "左侧"), ("屈 99 Nm", "伸 163 Nm"))
@@ -53,6 +65,23 @@ class PeakTorqueReportTests(unittest.TestCase):
             self.assertIn("峰力矩版", paths.png.name)
             with Image.open(paths.png) as image:
                 self.assertEqual(image.size, (1600, 1872))
+
+    def test_batch_directory_generates_four_matching_reports(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            input_dir = root / "input"
+            output_dir = root / "output"
+            input_dir.mkdir()
+            for index in range(1, 5):
+                workbook_path = input_dir / f"运动员{index}.xlsx"
+                test_end_to_end.EndToEndTests()._make_workbook(workbook_path, joint_count=1)
+                workbook = openpyxl.load_workbook(workbook_path)
+                workbook["1_运动员信息"]["B4"] = f"运动员{index}"
+                workbook.save(workbook_path)
+            exit_code = run_peak_torque([str(input_dir), "--output-dir", str(output_dir), "--no-pdf"])
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(len(list(output_dir.glob("*.png"))), 4)
+            self.assertEqual(len(list(output_dir.glob("*.pdf"))), 0)
 
 
 if __name__ == "__main__":

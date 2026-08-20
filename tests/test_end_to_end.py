@@ -1,6 +1,7 @@
 import re
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 import openpyxl
@@ -86,6 +87,16 @@ class EndToEndTests(unittest.TestCase):
             with Image.open(paths.png) as image:
                 self.assertEqual(image.size, (1600, 2000))
             self.assertEqual(paths.pdf.read_bytes()[:4], b"%PDF")
+
+    def test_excel_datetime_is_normalized_to_calendar_date(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workbook_path = Path(temp) / "datetime_input.xlsx"
+            self._make_workbook(workbook_path)
+            workbook = openpyxl.load_workbook(workbook_path)
+            workbook["1_运动员信息"]["B8"] = datetime(2026, 8, 19, 14, 35, 20)
+            workbook.save(workbook_path)
+            athlete, _records, _standards, _comments = load_workbook_data(workbook_path)
+            self.assertEqual(athlete.test_date, "2026-08-19")
 
     def test_three_joint_report_crops_unused_lower_space(self):
         with tempfile.TemporaryDirectory() as temp:

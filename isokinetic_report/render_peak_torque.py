@@ -170,7 +170,7 @@ def generate_report(result: AnalysisResult, output_dir: Path, include_pdf: bool 
     page_height = 12
     for page_index, page_joints in enumerate(pages, start=1):
         fig = plt.figure(figsize=(8, page_height), dpi=200, facecolor="white")
-        base._draw_header(fig, result, page_index, len(pages))
+        base._draw_header(fig, result, page_index, len(pages), metric_explanation=True)
         panel_rects, weakness_y, crop_bottom, weakness_font_size = base._page_layout(len(page_joints))
         for index, (joint, display_order) in enumerate(page_joints):
             draw_joint_panel(fig, panel_rects[index], joint, display_order, result, horizontal=panel_rects[index][2] > 0.8)

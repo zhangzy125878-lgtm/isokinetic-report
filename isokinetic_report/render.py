@@ -174,7 +174,13 @@ def draw_joint_panel(fig, rect: tuple[float, float, float, float], joint: str, r
                 fig.add_artist(plt.Line2D([x + 0.012, x + width - 0.012], [block_y - 0.002, block_y - 0.002], transform=fig.transFigure, color="#D8E2F2", linewidth=0.6, linestyle="--"))
 
 
-def _draw_header(fig, result: AnalysisResult, page_number: int = 1, total_pages: int = 1) -> None:
+def _draw_header(
+    fig,
+    result: AnalysisResult,
+    page_number: int = 1,
+    total_pages: int = 1,
+    metric_explanation: bool = False,
+) -> None:
     palette = result.standards.palette
     title = "等速肌力综合报告（预览版）" if result.standards.preview else "等速肌力综合报告"
     if total_pages > 1:
@@ -192,7 +198,7 @@ def _draw_header(fig, result: AnalysisResult, page_number: int = 1, total_pages:
         row, col = divmod(index, 2)
         fig.text(0.06 + col * 0.22, 0.886 - row * 0.036, f"{label}：{value}", fontsize=8.5, color="#172033", va="center")
     _box(fig, 0.515, 0.825, 0.45, 0.095, palette["边框色"])
-    fig.text(0.74, 0.902, "判读说明", ha="center", va="center", fontsize=10, fontweight="bold", color=palette["主色"])
+    fig.text(0.72 if metric_explanation else 0.74, 0.902, "判读说明", ha="center", va="center", fontsize=10, fontweight="bold", color=palette["主色"])
     legend_config = next(iter(sorted(result.standards.gauges.values(), key=lambda item: item.display_order)))
     demo = (legend_config.target_low + legend_config.target_high) / 2
     draw_gauge(fig, (0.535, 0.834, 0.13, 0.07), demo, legend_config, palette, "示例")
@@ -200,6 +206,12 @@ def _draw_header(fig, result: AnalysisResult, page_number: int = 1, total_pages:
     for index, (text, key) in enumerate(legend):
         fig.text(0.69, 0.883 - index * 0.022, "●", fontsize=9, color=palette[key], va="center")
         fig.text(0.71, 0.883 - index * 0.022, text, fontsize=7.5, color="#172033", va="center")
+    if metric_explanation:
+        fig.add_artist(plt.Line2D([0.815, 0.815], [0.838, 0.902], transform=fig.transFigure, color="#D8E2F2", linewidth=0.7))
+        fig.text(0.885, 0.902, "数值含义", ha="center", va="center", fontsize=8, fontweight="bold", color=palette["主色"])
+        fig.text(0.825, 0.879, "比例＝A肌群÷B肌群", ha="left", va="center", fontsize=5.8, color="#172033")
+        fig.text(0.825, 0.860, "如屈/伸、外展/内收等", ha="left", va="center", fontsize=5.5, color="#172033")
+        fig.text(0.825, 0.840, "双侧差＝|左−右|÷较大侧", ha="left", va="center", fontsize=5.5, color="#172033")
 
 
 def _emphasized_parts(text: str, emphasized: set[str]) -> list[str]:

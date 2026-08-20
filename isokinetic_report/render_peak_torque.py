@@ -37,16 +37,17 @@ def _torque_lines(record: Optional[TestRecord], side: str) -> tuple[str, str]:
 
 
 def _report_joints(result: AnalysisResult) -> list[tuple[str, int]]:
-    configured = sorted(result.standards.gauges.values(), key=lambda item: item.display_order)
-    joints = [(config.joint, config.display_order) for config in configured]
-    seen = {joint for joint, _order in joints}
-    next_order = max((order for _joint, order in joints), default=0) + 1
+    record_order: dict[str, int] = {}
     for record in result.records:
-        if record.joint not in seen:
-            joints.append((record.joint, next_order))
-            seen.add(record.joint)
-            next_order += 1
-    return joints
+        record_order.setdefault(record.joint, len(record_order))
+    ordered_joints = sorted(
+        record_order,
+        key=lambda joint: (
+            result.standards.gauges[joint].display_order if joint in result.standards.gauges else float("inf"),
+            record_order[joint],
+        ),
+    )
+    return [(joint, index) for index, joint in enumerate(ordered_joints, start=1)]
 
 
 def _page_result(result: AnalysisResult, joints: set[str]) -> AnalysisResult:
@@ -156,6 +157,13 @@ def generate_report(result: AnalysisResult, output_dir: Path, include_pdf: bool 
     filename_base = f"{base._safe_filename_part(result.athlete.name)}_等速肌力综合报告_{date_part}_峰力矩版"
     if result.standards.preview:
         filename_base += "_预览版"
+    if len(pages) == 1:
+        for stale_png in output_dir.glob(f"{filename_base}_第*页.png"):
+            stale_png.unlink()
+    else:
+        stale_png = output_dir / f"{filename_base}.png"
+        if stale_png.exists():
+            stale_png.unlink()
     pdf_path = output_dir / f"{filename_base}.pdf" if include_pdf else None
     png_paths: list[Path] = []
     figures: list[tuple[object, Optional[Bbox]]] = []

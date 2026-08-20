@@ -43,6 +43,20 @@ class PeakTorqueReportTests(unittest.TestCase):
             result = analyze(athlete, records, standards, comments)
             self.assertEqual(_report_joints(result)[-1], ("躯干旋转", 5))
 
+    def test_report_only_includes_joints_present_in_current_records(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workbook_path = root / "input_4.xlsx"
+            test_end_to_end.EndToEndTests()._make_workbook(workbook_path, joint_count=4)
+            athlete, records, standards, comments = load_workbook_data(workbook_path)
+            result = analyze(athlete, records, standards, comments)
+            result.records = [
+                record
+                for record in result.records
+                if record.joint in {"髋关节屈伸", "膝关节屈伸"}
+            ]
+            self.assertEqual(_report_joints(result), [("髋关节屈伸", 1), ("膝关节屈伸", 2)])
+
     def test_weaknesses_are_limited_to_the_current_page_joints(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -61,8 +75,13 @@ class PeakTorqueReportTests(unittest.TestCase):
             workbook_path = root / "input_4.xlsx"
             test_end_to_end.EndToEndTests()._make_workbook(workbook_path, joint_count=4)
             athlete, records, standards, comments = load_workbook_data(workbook_path)
-            paths = generate_report(analyze(athlete, records, standards, comments), root / "output")
+            output_dir = root / "output"
+            output_dir.mkdir()
+            stale_page = output_dir / "测试员_等速肌力综合报告_20260703_峰力矩版_第1页.png"
+            stale_page.touch()
+            paths = generate_report(analyze(athlete, records, standards, comments), output_dir)
             self.assertIn("峰力矩版", paths.png.name)
+            self.assertFalse(stale_page.exists())
             with Image.open(paths.png) as image:
                 self.assertEqual(image.size, (1600, 1872))
 

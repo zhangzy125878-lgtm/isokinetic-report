@@ -8,7 +8,7 @@ from PIL import Image
 from isokinetic_report.analysis import analyze
 from isokinetic_report.excel_io import load_workbook_data
 from isokinetic_report.models import TestRecord
-from isokinetic_report.render_peak_torque import _page_result, _report_joints, _torque_lines, generate_report
+from isokinetic_report.render_peak_torque import _page_result, _report_joints, _torque_line, generate_report
 from run_report_peak_torque import _directory_excels, run as run_peak_torque
 from tests import test_end_to_end
 
@@ -24,14 +24,14 @@ class PeakTorqueReportTests(unittest.TestCase):
             (root / "说明.txt").touch()
             self.assertEqual(_directory_excels(root), expected)
 
-    def test_torque_lines_include_both_muscles_and_units(self):
+    def test_torque_line_combines_both_muscles_with_one_unit(self):
         record = TestRecord(4, "7.3", True, "膝关节屈伸", "慢速", "屈肌", "伸肌", 99, 163, 69, 103)
-        self.assertEqual(_torque_lines(record, "左侧"), ("屈 99 Nm", "伸 163 Nm"))
-        self.assertEqual(_torque_lines(record, "右侧"), ("屈 69 Nm", "伸 103 Nm"))
+        self.assertEqual(_torque_line(record, "左侧"), "屈 99 ｜ 伸 163 Nm")
+        self.assertEqual(_torque_line(record, "右侧"), "屈 69 ｜ 伸 103 Nm")
 
     def test_single_muscle_torque_omits_empty_second_line(self):
         record = TestRecord(18, "8.10", True, "躯干旋转", "慢速", "旋转", "", 111, None, 105, None)
-        self.assertEqual(_torque_lines(record, "左侧"), ("旋转 111 Nm", ""))
+        self.assertEqual(_torque_line(record, "左侧"), "旋转 111 Nm")
 
     def test_sheet_two_only_joint_is_appended_to_peak_torque_report(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -23,17 +23,18 @@ def _muscle_label(value: str) -> str:
     return value.removesuffix("肌群").removesuffix("肌")
 
 
-def _torque_lines(record: Optional[TestRecord], side: str) -> tuple[str, str]:
+def _torque_line(record: Optional[TestRecord], side: str) -> str:
     if record is None:
-        return "峰力矩 —", "峰力矩 —"
+        return "峰力矩 —"
     if side == "左侧":
         values = (record.left_a, record.left_b)
     else:
         values = (record.right_a, record.right_b)
-    lines = []
+    parts = []
     for muscle, value in zip((record.muscle_a, record.muscle_b), values):
-        lines.append(f"{_muscle_label(muscle)} {_fmt_torque(value)} Nm" if muscle else "")
-    return lines[0], lines[1]
+        if muscle:
+            parts.append(f"{_muscle_label(muscle)} {_fmt_torque(value)}")
+    return f"{' ｜ '.join(parts)} Nm" if parts else "峰力矩 —"
 
 
 def _report_joints(result: AnalysisResult) -> list[tuple[str, int]]:
@@ -62,7 +63,7 @@ def draw_gauge(
     config: Optional[GaugeConfig],
     palette: dict[str, str],
     side: str,
-    torque_lines: tuple[str, str],
+    torque_line: str,
 ) -> None:
     ax = fig.add_axes(rect, zorder=2)
     ax.set_aspect("equal")
@@ -78,9 +79,7 @@ def draw_gauge(
     ax.set_ylim(-0.86, 1.08)
     ax.text(0, 1.07, side, ha="center", va="bottom", fontsize=7.5, color="#172033")
     ax.text(0, -0.28, base._fmt(value), ha="center", va="center", fontsize=9, fontweight="bold", color=palette["主色"] if value is not None else palette["缺失"])
-    ax.text(0, -0.53, torque_lines[0], ha="center", va="center", fontsize=5.8, color="#172033")
-    if torque_lines[1]:
-        ax.text(0, -0.73, torque_lines[1], ha="center", va="center", fontsize=5.8, color="#172033")
+    ax.text(0, -0.58, torque_line, ha="center", va="center", fontsize=6.6, color="#172033")
 
 
 def _draw_speed_block(
@@ -101,8 +100,8 @@ def _draw_speed_block(
     fig.text(x + label_w * 0.48, y + height * 0.55, speed, ha="center", va="center", fontsize=8, fontweight="bold", color=palette["主色"], bbox={"boxstyle": "round,pad=0.35", "facecolor": "#F1F6FF", "edgecolor": palette["边框色"], "linewidth": 0.6})
     left = record.left_ratio if record else None
     right = record.right_ratio if record else None
-    draw_gauge(fig, (x + label_w, y + 0.002, gauge_w, height - 0.004), left, config, palette, "左侧", _torque_lines(record, "左侧"))
-    draw_gauge(fig, (x + label_w + gauge_w + width * 0.02, y + 0.002, gauge_w, height - 0.004), right, config, palette, "右侧", _torque_lines(record, "右侧"))
+    draw_gauge(fig, (x + label_w, y + 0.002, gauge_w, height - 0.004), left, config, palette, "左侧", _torque_line(record, "左侧"))
+    draw_gauge(fig, (x + label_w + gauge_w + width * 0.07, y + 0.002, gauge_w, height - 0.004), right, config, palette, "右侧", _torque_line(record, "右侧"))
     base._draw_asymmetry(fig, x + width - asym_w, y + height * 0.08, asym_w, height * 0.84, record, palette, levels)
 
 

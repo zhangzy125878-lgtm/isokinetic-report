@@ -56,6 +56,33 @@ def _page_result(result: AnalysisResult, joints: set[str]) -> AnalysisResult:
     return replace(result, records=page_records, recommendations=generate_recommendations(page_records))
 
 
+def _footer_note_lines(result: AnalysisResult) -> tuple[str, str]:
+    priority_notes = [
+        f"{rule.output_label}＝{rule.note}"
+        for rule in sorted(result.standards.priority_rules, key=lambda item: item.order)
+        if rule.enabled and rule.output_label in {"关注比值", "关注差异"} and rule.note
+    ]
+    symbol_notes = [
+        f"{level.symbol}＝{level.note or level.state}"
+        for level in sorted(result.standards.asymmetry_levels, key=lambda item: item.order)
+        if level.enabled and level.symbol in {"√", "！", "↑"}
+    ]
+    return f"注：{'；'.join(priority_notes)}。", f"{'；'.join(symbol_notes)}。"
+
+
+def _draw_footer_notes(fig, result: AnalysisResult, bottom_y: float, font_size: float) -> None:
+    for index, line in enumerate(_footer_note_lines(result)):
+        fig.text(
+            0.04,
+            bottom_y + 0.029 - index * 0.017,
+            line,
+            ha="left",
+            va="center",
+            fontsize=font_size,
+            color="#64748B",
+        )
+
+
 def draw_gauge(
     fig,
     rect: tuple[float, float, float, float],
@@ -171,13 +198,17 @@ def generate_report(result: AnalysisResult, output_dir: Path, include_pdf: bool 
         fig = plt.figure(figsize=(8, page_height), dpi=200, facecolor="white")
         base._draw_header(fig, result, page_index, len(pages), metric_explanation=True)
         panel_rects, weakness_y, crop_bottom, weakness_font_size = base._page_layout(len(page_joints))
+        footer_crop_bottom = max(0.0, crop_bottom - 0.05)
+        if crop_bottom == 0:
+            weakness_y += 0.02
         for index, (joint, display_order) in enumerate(page_joints):
             draw_joint_panel(fig, panel_rects[index], joint, display_order, result, horizontal=panel_rects[index][2] > 0.8)
         page_result = _page_result(result, {joint for joint, _display_order in page_joints})
         base._draw_weaknesses(fig, page_result, weakness_y, weakness_font_size)
+        _draw_footer_notes(fig, result, footer_crop_bottom, weakness_font_size)
         suffix = f"_第{page_index}页" if len(pages) > 1 else ""
         png_path = output_dir / f"{filename_base}{suffix}.png"
-        crop_box = Bbox.from_bounds(0, page_height * crop_bottom, 8, page_height * (1 - crop_bottom)) if crop_bottom else None
+        crop_box = Bbox.from_bounds(0, page_height * footer_crop_bottom, 8, page_height * (1 - footer_crop_bottom)) if footer_crop_bottom else None
         fig.savefig(png_path, dpi=200, facecolor="white", bbox_inches=crop_box)
         png_paths.append(png_path)
         figures.append((fig, crop_box))

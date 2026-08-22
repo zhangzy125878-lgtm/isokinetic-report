@@ -8,12 +8,26 @@ from PIL import Image
 from isokinetic_report.analysis import analyze
 from isokinetic_report.excel_io import load_workbook_data
 from isokinetic_report.models import TestRecord
-from isokinetic_report.render_peak_torque import _page_result, _report_joints, _torque_line, generate_report
+from isokinetic_report.render_peak_torque import _footer_note_lines, _page_result, _report_joints, _torque_line, generate_report
 from run_report_peak_torque import _directory_excels, run as run_peak_torque
 from tests import test_end_to_end
 
 
 class PeakTorqueReportTests(unittest.TestCase):
+    def test_footer_notes_follow_sheet_three_descriptions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            workbook_path = Path(temp) / "input.xlsx"
+            test_end_to_end.EndToEndTests()._make_workbook(workbook_path, joint_count=1)
+            athlete, records, standards, comments = load_workbook_data(workbook_path)
+            result = analyze(athlete, records, standards, comments)
+            self.assertEqual(
+                _footer_note_lines(result),
+                (
+                    "注：关注比值＝存在多个明显比值异常；关注差异＝存在多个明显双侧差异。",
+                    "√＝双侧差异 ≤ 0.10；！＝0.10 < 双侧差异 < 0.20；↑＝双侧差异 ≥ 0.20。",
+                ),
+            )
+
     def test_directory_excels_returns_all_workbooks_and_skips_temporary_file(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -83,7 +97,7 @@ class PeakTorqueReportTests(unittest.TestCase):
             self.assertIn("峰力矩版", paths.png.name)
             self.assertFalse(stale_page.exists())
             with Image.open(paths.png) as image:
-                self.assertEqual(image.size, (1600, 1872))
+                self.assertEqual(image.size, (1600, 1992))
 
     def test_batch_directory_generates_four_matching_reports(self):
         with tempfile.TemporaryDirectory() as temp:

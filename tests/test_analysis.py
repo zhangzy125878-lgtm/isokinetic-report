@@ -57,6 +57,16 @@ class CalculationTests(unittest.TestCase):
         rules = [PriorityRule("重点一", 1, "重点", "比值红色项数", ">=", 1, "任一", "#FF0000")]
         self.assertEqual(classify_joint_priority([record], rules), "重点")
 
+    def test_priority_accepts_slow_and_fast_abnormal_metric(self):
+        records = []
+        for speed in ["慢速", "快速"]:
+            record = TestRecord(4, "7.3", True, "测试关节", speed, "A", "B", 1, 1, 1, 1)
+            record.left_ratio_status = "severe"
+            record.right_ratio_status = "normal"
+            records.append(record)
+        rules = [PriorityRule("重点", 1, "关注比值", "慢速和快速异常项数", ">=", 2, "任一", "#EF4444")]
+        self.assertEqual(classify_joint_priority(records, rules), "关注比值")
+
     def test_weaknesses_merge_speeds_and_ratio_overrides_asymmetry(self):
         records = [
             self._record("肩关节内外旋", "慢速", "外旋肌", "内旋肌", 60, 100, 74, 100),

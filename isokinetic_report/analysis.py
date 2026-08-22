@@ -152,13 +152,15 @@ def joint_metrics(records: list[TestRecord]) -> dict[str, int]:
         if all(_is_ratio_abnormal(status) for status in ratio_pair):
             both_sides += 1
     ratio_deviation = sum(_is_ratio_abnormal(status) for status in ratio_statuses)
+    severe_ratio_count = sum(status == "severe" for status in ratio_statuses)
     asym_deviation = sum(state != "正常" for state in asymmetry_states)
     return {
-        "比值红色项数": sum(status == "severe" for status in ratio_statuses),
+        "比值红色项数": severe_ratio_count,
         "比值偏离项数": ratio_deviation,
         "双侧差异↑项数": sum(state == "明显偏大" for state in asymmetry_states),
         "双侧差异！或↑项数": asym_deviation,
         "快速异常项数": fast_abnormal,
+        "慢速和快速异常项数": severe_ratio_count,
         "同速双侧比值异常次数": both_sides,
         "总异常项数": ratio_deviation + asym_deviation,
     }

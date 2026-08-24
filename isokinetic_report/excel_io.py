@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import math
+import re
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -99,6 +101,7 @@ ALLOWED_PRIORITY_METRICS = {
     "双侧差异↑项数",
     "双侧差异！或↑项数",
     "快速异常项数",
+    "慢速和快速异常项数",
     "同速双侧比值异常次数",
     "总异常项数",
 }
@@ -110,6 +113,17 @@ class WorkbookStructureError(ValueError):
 
 def _text(value: Any) -> str:
     return "" if value is None else str(value).strip()
+
+
+def _date_text(value: Any) -> str:
+    if isinstance(value, (datetime, date)):
+        return value.strftime("%Y-%m-%d")
+    text = _text(value)
+    match = re.match(r"^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})日?", text)
+    if match:
+        year, month, day = (int(part) for part in match.groups())
+        return f"{year:04d}-{month:02d}-{day:02d}"
+    return text
 
 
 def _number(value: Any) -> Optional[float]:
@@ -164,7 +178,7 @@ def load_athlete_info(ws: Worksheet) -> AthleteInfo:
         sport=_text(values["项目"]),
         sex=_text(values.get("性别")) or None,
         weight_kg=_number(values.get("体重_kg")),
-        test_date=_text(values["本次测试日期"]),
+        test_date=_date_text(values["本次测试日期"]),
         injury=_text(values.get("损伤情况")) or None,
         report_type=_text(values["报告类型"]),
     )

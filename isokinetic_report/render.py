@@ -10,10 +10,23 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
+from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.patches import Circle, FancyBboxPatch, Wedge
+from matplotlib.transforms import Bbox
 
 from .analysis import RATIO_STATUS_LABELS
 from .models import AnalysisResult, AsymmetryLevel, GaugeConfig, ReportPaths, TestRecord
+
+
+VISUAL_BAND_KEYS = (
+    "明显偏离",
+    "中度偏离",
+    "轻度偏离",
+    "目标范围",
+    "轻度偏离",
+    "中度偏离",
+    "明显偏离",
+)
 
 
 def _configure_chinese_font() -> None:
@@ -44,27 +57,42 @@ def _fmt(value: Optional[float]) -> str:
     return "—" if value is None else f"{value:.2f}"
 
 
+def _visual_edges() -> list[float]:
+    segment_width = 220 / len(VISUAL_BAND_KEYS)
+    return [200 - index * segment_width for index in range(len(VISUAL_BAND_KEYS) + 1)]
+
+
 def _angle(value: float, config: GaugeConfig) -> float:
-    clamped = min(max(value, config.gauge_min), config.gauge_max)
-    fraction = (clamped - config.gauge_min) / (config.gauge_max - config.gauge_min)
-    return 200 - 220 * fraction
+    numeric_edges = [
+        config.gauge_min,
+        config.low_red_upper,
+        config.low_orange_upper,
+        config.target_low,
+        config.target_high,
+        config.high_yellow_upper,
+        config.high_orange_upper,
+        config.gauge_max,
+    ]
+    visual_edges = _visual_edges()
+    clamped = min(max(value, numeric_edges[0]), numeric_edges[-1])
+    for index, (low, high) in enumerate(zip(numeric_edges, numeric_edges[1:])):
+        if clamped <= high or index == len(numeric_edges) - 2:
+            fraction = (clamped - low) / (high - low)
+            return visual_edges[index] + fraction * (visual_edges[index + 1] - visual_edges[index])
+    return visual_edges[-1]
+
+
+def _visual_segment_angles() -> list[tuple[float, float]]:
+    edges = _visual_edges()
+    return [(edges[index + 1], edges[index]) for index in range(len(VISUAL_BAND_KEYS))]
 
 
 def draw_gauge(fig, rect: tuple[float, float, float, float], value: Optional[float], config: GaugeConfig, palette: dict[str, str], side: str) -> None:
     ax = fig.add_axes(rect, zorder=2)
     ax.set_aspect("equal")
     ax.axis("off")
-    segments = [
-        (config.gauge_min, config.low_red_upper, palette["明显偏离"]),
-        (config.low_red_upper, config.low_orange_upper, palette["中度偏离"]),
-        (config.low_orange_upper, config.target_low, palette["轻度偏离"]),
-        (config.target_low, config.target_high, palette["目标范围"]),
-        (config.target_high, config.high_yellow_upper, palette["轻度偏离"]),
-        (config.high_yellow_upper, config.high_orange_upper, palette["中度偏离"]),
-        (config.high_orange_upper, config.gauge_max, palette["明显偏离"]),
-    ]
-    for low, high, color in segments:
-        ax.add_patch(Wedge((0, 0), 1.0, _angle(high, config), _angle(low, config), width=0.28, facecolor=color, edgecolor="white", linewidth=0.8))
+    for (theta1, theta2), color_key in zip(_visual_segment_angles(), VISUAL_BAND_KEYS):
+        ax.add_patch(Wedge((0, 0), 1.0, theta1, theta2, width=0.28, facecolor=palette[color_key], edgecolor="white", linewidth=0.8))
     if value is not None:
         angle = math.radians(_angle(value, config))
         ax.plot([0, 0.68 * math.cos(angle)], [0, 0.68 * math.sin(angle)], color=palette["主色"], linewidth=2.3, solid_capstyle="round")
@@ -146,10 +174,18 @@ def draw_joint_panel(fig, rect: tuple[float, float, float, float], joint: str, r
                 fig.add_artist(plt.Line2D([x + 0.012, x + width - 0.012], [block_y - 0.002, block_y - 0.002], transform=fig.transFigure, color="#D8E2F2", linewidth=0.6, linestyle="--"))
 
 
-def _draw_header(fig, result: AnalysisResult) -> None:
+def _draw_header(
+    fig,
+    result: AnalysisResult,
+    page_number: int = 1,
+    total_pages: int = 1,
+    metric_explanation: bool = False,
+) -> None:
     palette = result.standards.palette
     title = "等速肌力综合报告（预览版）" if result.standards.preview else "等速肌力综合报告"
-    fig.text(0.5, 0.958, title, ha="center", va="center", fontsize=23 if result.standards.preview else 25, fontweight="bold", color=palette["主色"])
+    if total_pages > 1:
+        title += f"  {page_number}/{total_pages}"
+    fig.text(0.5, 0.958, title, ha="center", va="center", fontsize=22 if total_pages > 1 or result.standards.preview else 25, fontweight="bold", color=palette["主色"])
     fig.add_artist(plt.Line2D([0.08, 0.23], [0.958, 0.958], transform=fig.transFigure, color=palette["边框色"], linewidth=1.0))
     fig.add_artist(plt.Line2D([0.77, 0.92], [0.958, 0.958], transform=fig.transFigure, color=palette["边框色"], linewidth=1.0))
     _box(fig, 0.035, 0.825, 0.46, 0.095, palette["边框色"])
@@ -162,7 +198,7 @@ def _draw_header(fig, result: AnalysisResult) -> None:
         row, col = divmod(index, 2)
         fig.text(0.06 + col * 0.22, 0.886 - row * 0.036, f"{label}：{value}", fontsize=8.5, color="#172033", va="center")
     _box(fig, 0.515, 0.825, 0.45, 0.095, palette["边框色"])
-    fig.text(0.74, 0.902, "判读说明", ha="center", va="center", fontsize=10, fontweight="bold", color=palette["主色"])
+    fig.text(0.72 if metric_explanation else 0.74, 0.902, "判读说明", ha="center", va="center", fontsize=10, fontweight="bold", color=palette["主色"])
     legend_config = next(iter(sorted(result.standards.gauges.values(), key=lambda item: item.display_order)))
     demo = (legend_config.target_low + legend_config.target_high) / 2
     draw_gauge(fig, (0.535, 0.834, 0.13, 0.07), demo, legend_config, palette, "示例")
@@ -170,20 +206,114 @@ def _draw_header(fig, result: AnalysisResult) -> None:
     for index, (text, key) in enumerate(legend):
         fig.text(0.69, 0.883 - index * 0.022, "●", fontsize=9, color=palette[key], va="center")
         fig.text(0.71, 0.883 - index * 0.022, text, fontsize=7.5, color="#172033", va="center")
+    if metric_explanation:
+        fig.add_artist(plt.Line2D([0.815, 0.815], [0.838, 0.902], transform=fig.transFigure, color="#D8E2F2", linewidth=0.7))
+        fig.text(0.885, 0.902, "数值含义", ha="center", va="center", fontsize=8, fontweight="bold", color=palette["主色"])
+        fig.text(0.825, 0.879, "比例＝A肌群÷B肌群", ha="left", va="center", fontsize=5.8, color="#172033")
+        fig.text(0.825, 0.860, "如屈/伸、外展/内收等", ha="left", va="center", fontsize=5.5, color="#172033")
+        fig.text(0.825, 0.840, "双侧差＝|左−右|÷较大侧", ha="left", va="center", fontsize=5.5, color="#172033")
 
 
-def _draw_recommendations(fig, result: AnalysisResult) -> None:
+def _emphasized_parts(text: str, emphasized: set[str]) -> list[str]:
+    tokens = sorted((token for token in emphasized if token), key=len, reverse=True)
+    parts = re.split(f"({'|'.join(re.escape(token) for token in tokens)})", text) if tokens else [text]
+    return [part for part in parts if part]
+
+
+def _fit_emphasized_font_size(fig, text: str, emphasized: set[str], max_width: float, max_font_size: float) -> float:
+    parts = _emphasized_parts(text, emphasized)
+    renderer = fig.canvas.get_renderer()
+    font_sizes = [max_font_size - 0.5 * index for index in range(int((max_font_size - 5.5) / 0.5) + 1)]
+    selected_size = font_sizes[-1]
+    for size in font_sizes:
+        width = 0.0
+        for part in parts:
+            weight = "bold" if part in emphasized else "normal"
+            prop = font_manager.FontProperties(family=plt.rcParams["font.sans-serif"], size=size, weight=weight)
+            width += renderer.get_text_width_height_descent(part, prop, ismath=False)[0] / fig.bbox.width
+        selected_size = size
+        if width <= max_width:
+            break
+    return selected_size
+
+
+def _draw_emphasized_line(
+    fig,
+    x: float,
+    y: float,
+    text: str,
+    emphasized: set[str],
+    font_size: float,
+) -> None:
+    parts = _emphasized_parts(text, emphasized)
+    renderer = fig.canvas.get_renderer()
+
+    cursor = x
+    for part in parts:
+        is_emphasized = part in emphasized
+        prop = font_manager.FontProperties(
+            family=plt.rcParams["font.sans-serif"],
+            size=font_size,
+            weight="bold" if is_emphasized else "normal",
+        )
+        width = renderer.get_text_width_height_descent(part, prop, ismath=False)[0] / fig.bbox.width
+        fig.text(cursor, y, part, ha="left", va="center", fontproperties=prop, color="#172033")
+        if is_emphasized:
+            fig.add_artist(
+                plt.Line2D(
+                    [cursor, cursor + width],
+                    [y - 0.004, y - 0.004],
+                    transform=fig.transFigure,
+                    color="#172033",
+                    linewidth=0.55,
+                )
+            )
+        cursor += width
+
+
+def _draw_weaknesses(fig, result: AnalysisResult, box_y: float, max_font_size: float) -> None:
     palette = result.standards.palette
-    _box(fig, 0.035, 0.025, 0.93, 0.105, palette["边框色"])
-    fig.text(0.06, 0.108, "教练建议（简版）", fontsize=11, fontweight="bold", color=palette["主色"], va="center")
+    box_height = 0.105
+    _box(fig, 0.035, box_y, 0.93, box_height, palette["边框色"])
+    fig.text(0.06, box_y + box_height - 0.022, "关键薄弱环节", fontsize=12 if max_font_size >= 8.5 else 11, fontweight="bold", color=palette["主色"], va="center")
     items = result.recommendations[:4]
+    emphasized = {
+        "左侧",
+        "右侧",
+        "双侧",
+        "最大力量",
+        "快速力量",
+        *(record.muscle_a if record.muscle_a.endswith(("肌", "肌群")) else f"{record.muscle_a}肌" for record in result.records),
+        *(record.muscle_b if record.muscle_b.endswith(("肌", "肌群")) else f"{record.muscle_b}肌" for record in result.records),
+    }
+    item_emphasis = [emphasized | {item.split("）", 1)[-1].split("：", 1)[0]} for item in items]
+    uniform_font_size = min(
+        (_fit_emphasized_font_size(fig, item, item_emphasis[index], 0.88, max_font_size) for index, item in enumerate(items)),
+        default=max_font_size,
+    )
     for index, item in enumerate(items):
-        col = index % 2
-        row = index // 2
-        x = 0.065 + col * 0.46
-        y = 0.075 - row * 0.033
-        fig.text(x, y, str(index + 1), ha="center", va="center", fontsize=8, fontweight="bold", color="white", bbox={"boxstyle": "circle,pad=0.35", "facecolor": palette["主色"], "edgecolor": palette["主色"]})
-        fig.text(x + 0.026, y, item, ha="left", va="center", fontsize=7.3, color="#172033")
+        line_y = box_y + box_height - 0.047 - index * 0.0185
+        _draw_emphasized_line(fig, 0.06, line_y, item, item_emphasis[index], uniform_font_size)
+
+
+def _page_layout(joint_count: int) -> tuple[list[tuple[float, float, float, float]], float, float, float]:
+    half_width = 0.465
+    top_left = (0.025, 0.595, half_width, 0.205)
+    top_right = (0.51, 0.595, half_width, 0.205)
+    middle_left = (0.025, 0.370, half_width, 0.205)
+    middle_right = (0.51, 0.370, half_width, 0.205)
+    top_full = (0.035, 0.595, 0.93, 0.205)
+    middle_full = (0.035, 0.370, 0.93, 0.205)
+    bottom_full = (0.035, 0.155, 0.93, 0.190)
+    if joint_count == 1:
+        return [top_full], 0.455, 0.44, 10.0
+    if joint_count == 2:
+        return [top_left, top_right], 0.455, 0.44, 9.0
+    if joint_count == 3:
+        return [top_left, top_right, middle_full], 0.235, 0.22, 8.5
+    if joint_count == 4:
+        return [top_left, top_right, middle_left, middle_right], 0.235, 0.22, 8.0
+    return [top_left, top_right, middle_left, middle_right, bottom_full], 0.025, 0.0, 7.5
 
 
 def _safe_filename_part(value: str) -> str:
@@ -194,28 +324,37 @@ def generate_report(result: AnalysisResult, output_dir: Path, include_pdf: bool 
     if not result.standards.complete:
         raise ValueError("Sheet 3 配置不完整，不能生成正式判读报告")
     _configure_chinese_font()
-    fig = plt.figure(figsize=(8, 10), dpi=200, facecolor="white")
-    _draw_header(fig, result)
     joints = sorted(result.standards.gauges.values(), key=lambda item: item.display_order)
-    panel_rects = [
-        (0.025, 0.595, 0.465, 0.205),
-        (0.51, 0.595, 0.465, 0.205),
-        (0.025, 0.370, 0.465, 0.205),
-        (0.51, 0.370, 0.465, 0.205),
-        (0.035, 0.155, 0.93, 0.190),
-    ]
-    for index, config in enumerate(joints[:5]):
-        draw_joint_panel(fig, panel_rects[index], config.joint, result, horizontal=index == 4)
-    _draw_recommendations(fig, result)
+    if not joints:
+        raise ValueError("没有可绘制的关节配置")
+    if len(joints) > 10:
+        raise ValueError(f"当前版本最多支持 10 个关节，实际读取到 {len(joints)} 个")
+    pages = [joints[index:index + 5] for index in range(0, len(joints), 5)]
     output_dir.mkdir(parents=True, exist_ok=True)
     date_part = _safe_filename_part(result.athlete.test_date.replace("-", ""))
     base = f"{_safe_filename_part(result.athlete.name)}_等速肌力综合报告_{date_part}"
     if result.standards.preview:
         base += "_预览版"
-    png_path = output_dir / f"{base}.png"
     pdf_path = output_dir / f"{base}.pdf" if include_pdf else None
-    fig.savefig(png_path, dpi=200, facecolor="white")
+    png_paths: list[Path] = []
+    figures: list[tuple[object, Optional[Bbox]]] = []
+    for page_index, page_joints in enumerate(pages, start=1):
+        fig = plt.figure(figsize=(8, 10), dpi=200, facecolor="white")
+        _draw_header(fig, result, page_index, len(pages))
+        panel_rects, weakness_y, crop_bottom, weakness_font_size = _page_layout(len(page_joints))
+        for index, config in enumerate(page_joints):
+            draw_joint_panel(fig, panel_rects[index], config.joint, result, horizontal=panel_rects[index][2] > 0.8)
+        _draw_weaknesses(fig, result, weakness_y, weakness_font_size)
+        suffix = f"_第{page_index}页" if len(pages) > 1 else ""
+        png_path = output_dir / f"{base}{suffix}.png"
+        crop_box = Bbox.from_bounds(0, 10 * crop_bottom, 8, 10 * (1 - crop_bottom)) if crop_bottom else None
+        fig.savefig(png_path, dpi=200, facecolor="white", bbox_inches=crop_box)
+        png_paths.append(png_path)
+        figures.append((fig, crop_box))
     if pdf_path:
-        fig.savefig(pdf_path, format="pdf", facecolor="white")
-    plt.close(fig)
-    return ReportPaths(png=png_path, pdf=pdf_path)
+        with PdfPages(pdf_path) as pdf:
+            for fig, crop_box in figures:
+                pdf.savefig(fig, facecolor="white", bbox_inches=crop_box)
+    for fig, _crop_box in figures:
+        plt.close(fig)
+    return ReportPaths(png=png_paths[0], pdf=pdf_path, additional_pngs=tuple(png_paths[1:]))

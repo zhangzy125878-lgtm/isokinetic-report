@@ -2,3 +2,8 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 output/
+output_peak_torque/
+*.xls
+*.xlsx
+*.png
+*.pdf

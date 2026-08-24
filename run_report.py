@@ -1,7 +1,7 @@
 """一键运行等速肌力综合报告生成器。
 
 直接执行 ``python run_report.py`` 即可。脚本会优先寻找
-``D:\博士\江苏体科所\等速测试新报告_用于测试`` 中的 Excel，
+``D:\博士\江苏体科所\等速测试新报告_用于测试\运行文件夹`` 中的 Excel，
 其次寻找项目目录和当前用户 Downloads 目录中的 Codex 输入模板。
 也可以把任意同结构 xlsx 路径作为第一个参数传入。
 """
@@ -15,7 +15,7 @@ from pathlib import Path
 
 TEMPLATE_NAME = "等速肌力报告_Codex输入模板_周建伟.xlsx"
 FULL_TEMPLATE_NAME = "等速肌力报告_Codex输入模板_按当前脚本完整版.xlsx"
-DEFAULT_INPUT_DIR = Path(r"D:\博士\江苏体科所\等速测试新报告_用于测试")
+DEFAULT_INPUT_DIR = Path(r"D:\博士\江苏体科所\等速测试新报告_用于测试\运行文件夹")
 
 
 def _excel_candidates(project_dir: Path, preferred_dir: Path = DEFAULT_INPUT_DIR) -> list[Path]:
@@ -34,7 +34,8 @@ def _excel_candidates(project_dir: Path, preferred_dir: Path = DEFAULT_INPUT_DIR
     for directory in [preferred_dir, project_dir, Path.home() / "Downloads"]:
         if not directory.is_dir():
             continue
-        matches = sorted(directory.glob("*等速肌力*.xlsx"), key=lambda path: ("完整版" not in path.name, path.name))
+        pattern = "*.xlsx" if directory == preferred_dir else "*等速肌力*.xlsx"
+        matches = sorted(directory.glob(pattern), key=lambda path: ("完整版" not in path.name, path.name))
         for path in matches:
             if path.name.startswith("~$") or path in candidates:
                 continue
